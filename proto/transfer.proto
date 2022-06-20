@@ -1,9 +1,9 @@
 syntax = "proto3";
 package transfer;
 
-service TransferService {
+service Transfer {
   rpc ListFiles(FileListRequest) returns (FileNames);
-  rpc GetFile(FileName) returns (File);
+  rpc GetFile(FileName) returns (FileResponse);
 }
 
 message FileListRequest {}
@@ -16,7 +16,7 @@ message FileNames {
   repeated FileName names = 1;
 }
 
-message File {
+message FileResponse {
   FileName name = 1;
   bytes content = 2;
 }
