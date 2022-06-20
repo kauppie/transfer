@@ -18,13 +18,18 @@ impl Transfer for MyTransfer {
     ) -> Result<Response<FileNames>, Status> {
         println!("Got a file listing request: {:?}", request);
 
-        let reply = FileNames {
-            names: vec![FileName {
-                name: "my file name".to_string(),
-            }],
-        };
+        let mut names = Vec::new();
 
-        Ok(Response::new(reply)) // Send back our formatted greeting
+        let mut entries = tokio::fs::read_dir(".").await?;
+        while let Some(entry) = entries.next_entry().await? {
+            names.push(FileName {
+                name: format!("{:?}", entry.file_name()),
+            });
+        }
+
+        let reply = FileNames { names };
+
+        Ok(Response::new(reply))
     }
 
     async fn get_file(&self, request: Request<FileName>) -> Result<Response<FileResponse>, Status> {
@@ -37,7 +42,7 @@ impl Transfer for MyTransfer {
             content: vec![],
         };
 
-        Ok(Response::new(reply)) // Send back our formatted greeting
+        Ok(Response::new(reply))
     }
 }
 
