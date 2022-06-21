@@ -22,9 +22,13 @@ impl Transfer for MyTransfer {
 
         let mut entries = tokio::fs::read_dir(".").await?;
         while let Some(entry) = entries.next_entry().await? {
-            names.push(FileName {
-                name: format!("{:?}", entry.file_name()),
-            });
+            names.push(format!(
+                "{}",
+                entry
+                    .file_name()
+                    .into_string()
+                    .map_err(|_| Status::internal("list item conversion failed"))?
+            ));
         }
 
         let reply = FileNames { names };
@@ -35,11 +39,15 @@ impl Transfer for MyTransfer {
     async fn get_file(&self, request: Request<FileName>) -> Result<Response<FileResponse>, Status> {
         println!("Got a file download request: {:?}", request);
 
+        let file_name = request.into_inner().name;
+
+        let bytes = tokio::fs::read(&file_name)
+            .await
+            .map_err(|_| Status::failed_precondition("file does not exist"))?;
+
         let reply = FileResponse {
-            name: Some(FileName {
-                name: "my file".to_string(),
-            }),
-            content: vec![],
+            name: file_name,
+            content: bytes,
         };
 
         Ok(Response::new(reply))

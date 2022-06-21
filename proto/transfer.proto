@@ -13,10 +13,10 @@ message FileName {
 }
 
 message FileNames {
-  repeated FileName names = 1;
+  repeated string names = 1;
 }
 
 message FileResponse {
-  FileName name = 1;
+  string name = 1;
   bytes content = 2;
 }
