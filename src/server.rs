@@ -22,13 +22,12 @@ impl Transfer for MyTransfer {
 
         let mut entries = tokio::fs::read_dir(".").await?;
         while let Some(entry) = entries.next_entry().await? {
-            names.push(format!(
-                "{}",
+            names.push(
                 entry
                     .file_name()
                     .into_string()
-                    .map_err(|_| Status::internal("list item conversion failed"))?
-            ));
+                    .map_err(|_| Status::internal("list item conversion failed"))?,
+            );
         }
 
         let reply = FileNames { names };
@@ -56,15 +55,20 @@ impl Transfer for MyTransfer {
 
 type StdError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
-#[tokio::main]
-async fn main() -> Result<(), StdError> {
+fn main() -> Result<(), StdError> {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+
     let addr = "[::1]:50051".parse()?;
     let greeter = MyTransfer::default();
 
-    Server::builder()
-        .add_service(TransferServer::new(greeter))
-        .serve(addr)
-        .await?;
+    runtime.block_on(async move {
+        Server::builder()
+            .add_service(TransferServer::new(greeter))
+            .serve(addr)
+            .await?;
 
-    Ok(())
+        Ok(())
+    })
 }
