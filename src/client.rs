@@ -2,7 +2,7 @@ use clap::Parser;
 
 use tokio::io::AsyncWriteExt;
 use transfer::transfer_client::TransferClient;
-use transfer::{FileListRequest, FileName};
+use transfer::{FileName, Path};
 
 pub mod transfer {
     tonic::include_proto!("transfer"); // The string specified here must match the proto package name
@@ -17,8 +17,13 @@ struct Args {
 
 #[derive(clap::Subcommand, Debug)]
 enum Command {
-    List,
+    List(ListArgs),
     Get(GetArgs),
+}
+
+#[derive(clap::Args, Debug)]
+struct ListArgs {
+    path: String,
 }
 
 #[derive(clap::Args, Debug)]
@@ -33,7 +38,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Build a runtime for asynchronous requests.
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
-        .build()?;
+        .build()
+        .expect("couldn't create tokio runtime");
 
     // Run asynchronous runtime.
     runtime.block_on(async move {
@@ -41,9 +47,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut client = TransferClient::connect("http://[::1]:50051").await?;
 
         match args.command {
-            Command::List => {
+            Command::List(args) => {
                 // Create a file list request.
-                let request = tonic::Request::new(FileListRequest {});
+                let request = tonic::Request::new(Path { path: args.path });
                 // Make a request to the server with request and get response.
                 let response = client.list_files(request).await?;
 

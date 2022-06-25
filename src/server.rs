@@ -1,7 +1,7 @@
 use tonic::{transport::Server, Request, Response, Status};
 
 use transfer::transfer_server::{Transfer, TransferServer};
-use transfer::{FileListRequest, FileName, FileNames, FileResponse};
+use transfer::{FileName, FileNames, FileResponse, Path};
 
 pub mod transfer {
     tonic::include_proto!("transfer"); // The string specified here must match the proto package name
@@ -12,15 +12,13 @@ pub struct MyTransfer {}
 
 #[tonic::async_trait]
 impl Transfer for MyTransfer {
-    async fn list_files(
-        &self,
-        request: Request<FileListRequest>,
-    ) -> Result<Response<FileNames>, Status> {
-        println!("Got a file listing request: {:?}", request);
+    #[tracing::instrument]
+    async fn list_files(&self, request: Request<Path>) -> Result<Response<FileNames>, Status> {
+        tracing::info!("got a file listing request");
 
         let mut names = Vec::new();
 
-        let mut entries = tokio::fs::read_dir(".").await?;
+        let mut entries = tokio::fs::read_dir(&request.into_inner().path).await?;
         while let Some(entry) = entries.next_entry().await? {
             names.push(
                 entry
@@ -35,8 +33,9 @@ impl Transfer for MyTransfer {
         Ok(Response::new(reply))
     }
 
+    #[tracing::instrument]
     async fn get_file(&self, request: Request<FileName>) -> Result<Response<FileResponse>, Status> {
-        println!("Got a file download request: {:?}", request);
+        tracing::info!("got a file download request");
 
         let file_name = request.into_inner().name;
 
@@ -56,9 +55,16 @@ impl Transfer for MyTransfer {
 type StdError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
 fn main() -> Result<(), StdError> {
+    let subscriber = tracing_subscriber::FmtSubscriber::builder()
+        .with_max_level(tracing::Level::INFO)
+        .finish();
+
+    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
+
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
-        .build()?;
+        .build()
+        .expect("couldn't create tokio runtime");
 
     let addr = "[::1]:50051".parse()?;
     let greeter = MyTransfer::default();

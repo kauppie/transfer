@@ -2,11 +2,15 @@ syntax = "proto3";
 package transfer;
 
 service Transfer {
-  rpc ListFiles(FileListRequest) returns (FileNames);
+  rpc ListFiles(Path) returns (FileNames);
   rpc GetFile(FileName) returns (FileResponse);
 }
 
-message FileListRequest {}
+message Empty {}
+
+message Path {
+  string path = 1;
+}
 
 message FileName {
   string name = 1;
