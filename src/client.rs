@@ -1,4 +1,3 @@
-use anyhow::anyhow;
 use clap::Parser;
 use tokio::io::AsyncWriteExt;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
@@ -45,13 +44,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Run asynchronous runtime.
     runtime.block_on(async move {
+        // Read server's CA certificate.
         let pem = tokio::fs::read("dev/ca.pem").await?;
         let ca = Certificate::from_pem(pem);
 
+        // Configure TLS client with server settings.
         let tls = ClientTlsConfig::new()
             .ca_certificate(ca)
             .domain_name("example.com");
 
+        // Create and connect a TLS channel to the server.
         let channel = Channel::from_static("http://[::1]:50051")
             .tls_config(tls)?
             .connect()
