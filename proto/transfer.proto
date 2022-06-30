@@ -2,25 +2,36 @@ syntax = "proto3";
 package transfer;
 
 service Transfer {
-  rpc ListFiles(Path) returns (FileNames);
-  rpc GetFile(FileName) returns (FileResponse);
+  rpc ListFiles(ListFilesRequest) returns (ListFilesResponse);
+  rpc GetFile(GetFileRequest) returns (GetFileResponse);
 }
 
-message Empty {}
+service Login {
+  rpc Login(LoginRequest) returns (LoginResponse);
+}
 
-message Path {
+message ListFilesRequest {
   string path = 1;
 }
 
-message FileName {
-  string name = 1;
-}
-
-message FileNames {
+message ListFilesResponse {
   repeated string names = 1;
 }
 
-message FileResponse {
+message GetFileRequest {
+  string name = 1;
+}
+
+message GetFileResponse {
   string name = 1;
   bytes content = 2;
+}
+
+message LoginRequest {
+  string username = 1;
+  string password = 2;
+}
+
+message LoginResponse {
+  string token = 1;
 }
