@@ -48,6 +48,15 @@ struct LoginArgs {
 
 type StdError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
+async fn load_token(path: &str) -> Result<String, StdError> {
+    let token_bin = tokio::fs::read(path).await?;
+    let token_str = String::from_utf8(token_bin)?;
+
+    Ok(token_str)
+}
+
+const TOKEN_PATH: &str = "token.txt";
+
 #[tokio::main]
 async fn main() -> Result<(), StdError> {
     // Parse command line arguments.
@@ -68,46 +77,53 @@ async fn main() -> Result<(), StdError> {
         .connect()
         .await?;
 
-    let token: MetadataValue<_> = "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJoZWxsbyIsImV4cCI6MTY1NjYyODExN30.av9hf8fDRSzPzZtU6nUTpo8081UgUiWFHj-lKBefaiWQpVWVVVrzdUHqseNsNL-E-zi2q1nOFJg6plRad3Y6ngiGbH08Hye1T5HrgaBzS5QBhBVYfoFDPdkSojX5KLHnwApi9B1G2mN3UI_SWScPJBxhOfCxjin1RL7u1XLqBI7kGMYRFUiK7jSERE7ktFvGyKFsjJWrln9gLQQ6vh4cyGHE2bZeisPtqaSll1rd3iu7mG6Wy0MUCXYCJllv1YwcZl-PuaAP9woDSKXpnSNmhlQ2nbZxPhQjRXQO69DJ-oPheWkBP1dHWmZbUgzqFk5sZWM2_PwtNLdTnNoRL8Wsvg".parse()?;
+    if let Command::Login(args) = &args.command {
+        let mut login_client = LoginClient::new(channel.clone());
 
-    // Create a client using the created channel.
-    let mut client =
-        TransferClient::with_interceptor(channel.clone(), move |mut req: Request<()>| {
-            req.metadata_mut().insert("authorization", token.clone());
-            Ok(req)
+        // Create the login request.
+        let request = tonic::Request::new(LoginRequest {
+            username: args.username.clone(),
+            password: args.password.clone(),
         });
+        // Get response by calling the server.
+        let response = login_client.login(request).await?;
 
-    let mut login_client = LoginClient::new(channel);
+        // Save the token got via response to file.
+        let token = response.into_inner().token;
+        tokio::fs::write(TOKEN_PATH, "bearer ".to_owned() + &token).await?;
+    } else {
+        let token: MetadataValue<_> = load_token(TOKEN_PATH).await?.parse()?;
 
-    match args.command {
-        Command::List(args) => {
-            // Create a file list request.
-            let request = tonic::Request::new(ListFilesRequest { path: args.path });
-            // Make a request to the server with request and get response.
-            let response = client.list_files(request).await?;
-
-            // Print result file names.
-            for file_name in response.into_inner().names {
-                println!("{}", file_name);
-            }
-        }
-        Command::Get(args) => {
-            // Make a request to the server with file name request and get file response.
-            let response = client
-                .get_file(tonic::Request::new(GetFileRequest { name: args.name }))
-                .await?
-                .into_inner();
-
-            let mut file = tokio::fs::File::create("output").await?;
-            file.write_all(&response.content).await?;
-        }
-        Command::Login(args) => {
-            let request = tonic::Request::new(LoginRequest {
-                username: args.username,
-                password: args.password,
+        // Create a client requiring authorization.
+        let mut transfer_client =
+            TransferClient::with_interceptor(channel.clone(), move |mut req: Request<()>| {
+                req.metadata_mut().insert("authorization", token.clone());
+                Ok(req)
             });
-            let response = login_client.login(request).await?;
-            println!("{:?}", response);
+
+        match args.command {
+            Command::List(args) => {
+                // Create a file list request.
+                let request = tonic::Request::new(ListFilesRequest { path: args.path });
+                // Make a request to the server with request and get response.
+                let response = transfer_client.list_files(request).await?;
+
+                // Print result file names.
+                for file_name in response.into_inner().names {
+                    println!("{}", file_name);
+                }
+            }
+            Command::Get(args) => {
+                // Make a request to the server with file name request and get file response.
+                let response = transfer_client
+                    .get_file(tonic::Request::new(GetFileRequest { name: args.name }))
+                    .await?
+                    .into_inner();
+
+                let mut file = tokio::fs::File::create("output").await?;
+                file.write_all(&response.content).await?;
+            }
+            _ => unreachable!(),
         }
     }
 

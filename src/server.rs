@@ -126,37 +126,31 @@ impl AuthInterceptor {
 
 impl tonic::service::Interceptor for AuthInterceptor {
     fn call(&mut self, request: tonic::Request<()>) -> Result<tonic::Request<()>, Status> {
-        // Get the authorization header.
+        // Get the authorization header. This should string should be in format "bearer <token>".
         let bearer = request
             .metadata()
             .get("authorization")
-            .ok_or(Status::permission_denied("missing authorization header"))?
+            .ok_or(Status::unauthenticated("missing authorization header"))?
             .to_str()
             .map_err(|_| {
                 Status::invalid_argument("authorization header is not valid ASCII string")
             })?;
 
-        // Regex to parse the token from the header.
-        lazy_static::lazy_static! {
-            static ref BEAR_REGEX: regex::Regex = regex::Regex::new(r"Bearer (?P<bearer>.*)").unwrap();
-        }
-        // Get token in compact string format using the regex.
-        let token_str = &BEAR_REGEX
-            .captures_iter(bearer)
-            .next()
-            .ok_or_else(|| Status::invalid_argument("bearer is missing"))?["bearer"];
+        // Strip the string prefix to get the token.
+        let token = bearer
+            .strip_prefix("bearer ")
+            .ok_or_else(|| Status::invalid_argument("bearer is missing"))?;
 
-        let header = jsonwebtoken::decode_header(token_str)
+        let header = jsonwebtoken::decode_header(token)
             .map_err(|_| Status::invalid_argument("token header cannot be parsed"))?;
 
-        // Validation is done using the same algorithm as it was encoded with.
-        // In this case RS256. Algorithm could also be decoded from the header.
+        // Validation is done using the algorithm reported by the header.
         let validation = jsonwebtoken::Validation::new(header.alg);
 
         // Validate token. Token claims are not used at least yet.
         let _token_data =
-            jsonwebtoken::decode::<common::Claims>(token_str, &self.decoding_key, &validation)
-                .map_err(|e| Status::unauthenticated(format!("{e}")))?;
+            jsonwebtoken::decode::<common::Claims>(token, &self.decoding_key, &validation)
+                .map_err(|e| Status::unauthenticated(e.to_string()))?;
 
         Ok(Request::new(()))
     }

@@ -21,8 +21,6 @@ tracing-subscriber = "0.3.11"
 anyhow = "1.0"
 jsonwebtoken = { version = "8.1.1", features = ["use_pem"] }
 serde = {version = "1.0.137", features = ["derive"] }
-regex = "1.5.6"
-lazy_static = "1.4.0"
 
 [build-dependencies]
 tonic-build = "0.7"
