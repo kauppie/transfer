@@ -114,17 +114,17 @@ impl Login for MyLogin {
 }
 
 #[derive(Clone)]
-struct TokenInterceptor {
+struct AuthInterceptor {
     decoding_key: jsonwebtoken::DecodingKey,
 }
 
-impl TokenInterceptor {
+impl AuthInterceptor {
     pub fn new(decoding_key: jsonwebtoken::DecodingKey) -> Self {
         Self { decoding_key }
     }
 }
 
-impl tonic::service::Interceptor for TokenInterceptor {
+impl tonic::service::Interceptor for AuthInterceptor {
     fn call(&mut self, request: tonic::Request<()>) -> Result<tonic::Request<()>, Status> {
         // Get the authorization header.
         let bearer = request
@@ -140,10 +140,18 @@ impl tonic::service::Interceptor for TokenInterceptor {
         lazy_static::lazy_static! {
             static ref BEAR_REGEX: regex::Regex = regex::Regex::new(r"Bearer (?P<bearer>.*)").unwrap();
         }
-        // Token in compact string format.
-        let token_str = &BEAR_REGEX.captures_iter(bearer).next().unwrap()["bearer"];
-        // Validation is done using the same algorithm as it has encoded with. In this case RS256.
-        let validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::RS256);
+        // Get token in compact string format using the regex.
+        let token_str = &BEAR_REGEX
+            .captures_iter(bearer)
+            .next()
+            .ok_or_else(|| Status::invalid_argument("bearer is missing"))?["bearer"];
+
+        let header = jsonwebtoken::decode_header(token_str)
+            .map_err(|_| Status::invalid_argument("token header cannot be parsed"))?;
+
+        // Validation is done using the same algorithm as it was encoded with.
+        // In this case RS256. Algorithm could also be decoded from the header.
+        let validation = jsonwebtoken::Validation::new(header.alg);
 
         // Validate token. Token claims are not used at least yet.
         let _token_data =
@@ -174,18 +182,18 @@ async fn main() -> Result<(), StdError> {
 
     let cert = tokio::fs::read("dev/cert.pem").await?;
     let key = tokio::fs::read("dev/cert.key").await?;
-    let identity = Identity::from_pem(&cert, &key);
+    let identity = Identity::from_pem(cert, key);
 
     let jwt_pub_key = tokio::fs::read("dev/public.pem").await?;
     let decoding_key = jsonwebtoken::DecodingKey::from_rsa_pem(&jwt_pub_key)
-        .map_err(|_| Status::internal("decoding error"))?;
+        .expect("failed to load public decoding key");
 
     let my_login = MyLogin::new();
     let login_service = LoginServer::new(my_login);
 
     let my_transfer = MyTransfer::default();
     let transfer_service =
-        TransferServer::with_interceptor(my_transfer, TokenInterceptor::new(decoding_key));
+        TransferServer::with_interceptor(my_transfer, AuthInterceptor::new(decoding_key));
 
     let addr = "[::1]:50051".parse()?;
 
