@@ -1,10 +1,5 @@
 mod common;
 
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-};
-
 use tonic::{
     transport::{Identity, Server, ServerTlsConfig},
     Request, Response, Status,
@@ -79,16 +74,14 @@ impl Transfer for MyTransfer {
 }
 
 #[derive(Debug, Default)]
-pub struct MyLogin {
-    logins: Arc<Mutex<HashMap<String, String>>>,
-}
+pub struct MyLogin {}
 
 impl MyLogin {
     const NAME: &'static str = "hello";
     const PASSWORD: &'static str = "world";
 
-    pub fn new(logins: Arc<Mutex<HashMap<String, String>>>) -> Self {
-        Self { logins }
+    pub fn new() -> Self {
+        Self {}
     }
 }
 
@@ -113,16 +106,51 @@ impl Login for MyLogin {
             )
             .map_err(|_| Status::internal("token encoding failed"))?;
 
-            // Add username and corresponding token.
-            self.logins
-                .lock()
-                .unwrap()
-                .insert(token.clone(), request.username);
-
             Ok(Response::new(LoginResponse { token }))
         } else {
             Err(Status::permission_denied("invalid credentials"))
         }
+    }
+}
+
+#[derive(Clone)]
+struct TokenInterceptor {
+    decoding_key: jsonwebtoken::DecodingKey,
+}
+
+impl TokenInterceptor {
+    pub fn new(decoding_key: jsonwebtoken::DecodingKey) -> Self {
+        Self { decoding_key }
+    }
+}
+
+impl tonic::service::Interceptor for TokenInterceptor {
+    fn call(&mut self, request: tonic::Request<()>) -> Result<tonic::Request<()>, Status> {
+        // Get the authorization header.
+        let bearer = request
+            .metadata()
+            .get("authorization")
+            .ok_or(Status::permission_denied("missing authorization header"))?
+            .to_str()
+            .map_err(|_| {
+                Status::invalid_argument("authorization header is not valid ASCII string")
+            })?;
+
+        // Regex to parse the token from the header.
+        lazy_static::lazy_static! {
+            static ref BEAR_REGEX: regex::Regex = regex::Regex::new(r"Bearer (?P<bearer>.*)").unwrap();
+        }
+        // Token in compact string format.
+        let token_str = &BEAR_REGEX.captures_iter(bearer).next().unwrap()["bearer"];
+        // Validation is done using the same algorithm as it has encoded with. In this case RS256.
+        let validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::RS256);
+
+        // Validate token. Token claims are not used at least yet.
+        let _token_data =
+            jsonwebtoken::decode::<common::Claims>(token_str, &self.decoding_key, &validation)
+                .map_err(|e| Status::unauthenticated(format!("{e}")))?;
+
+        Ok(Request::new(()))
     }
 }
 
@@ -152,42 +180,14 @@ async fn main() -> Result<(), StdError> {
     let decoding_key = jsonwebtoken::DecodingKey::from_rsa_pem(&jwt_pub_key)
         .map_err(|_| Status::internal("decoding error"))?;
 
-    lazy_static::lazy_static! {
-        static ref BEAR_REGEX: regex::Regex = regex::Regex::new(r"Bearer (?P<bearer>.*)").unwrap();
-    }
-
-    let addr = "[::1]:50051".parse()?;
-
-    // Map to store username and password combos. Just for testing.
-    let pass_storage = Arc::new(Mutex::new(HashMap::<String, String>::new()));
-
-    let my_login = MyLogin::new(pass_storage.clone());
+    let my_login = MyLogin::new();
     let login_service = LoginServer::new(my_login);
 
     let my_transfer = MyTransfer::default();
-    let transfer_service = TransferServer::with_interceptor(my_transfer, move |req: Request<()>| {
-        let bearer = req
-            .metadata()
-            .get("authorization")
-            .unwrap()
-            .to_str()
-            .unwrap();
+    let transfer_service =
+        TransferServer::with_interceptor(my_transfer, TokenInterceptor::new(decoding_key));
 
-        let token_str = &BEAR_REGEX.captures_iter(bearer).next().unwrap()["bearer"];
-        tracing::info!("{}", token_str);
-
-        let header = jsonwebtoken::decode_header(&token_str);
-        tracing::info!("{:?}", header);
-
-        let _token_data = jsonwebtoken::decode::<common::Claims>(
-            token_str,
-            &decoding_key,
-            &jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::RS256),
-        )
-        .map_err(|e| Status::permission_denied(format!("{}", e)))?;
-
-        Ok(Request::new(()))
-    });
+    let addr = "[::1]:50051".parse()?;
 
     Server::builder()
         .tls_config(ServerTlsConfig::new().identity(identity))?
