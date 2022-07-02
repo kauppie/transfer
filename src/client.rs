@@ -49,9 +49,7 @@ struct LoginArgs {
 type StdError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
 async fn load_token(path: &str) -> Result<String, StdError> {
-    let token_bin = tokio::fs::read(path).await?;
-    let token_str = String::from_utf8(token_bin)?;
-
+    let token_str = tokio::fs::read_to_string(path).await?;
     Ok(token_str)
 }
 
