@@ -1,5 +1,7 @@
 # How to use SeaORM
 
+This document has been derived from SeaORM official documentation for ease of access.
+
 ## TLDR
 
 - Create empty `entity` crate.
@@ -38,7 +40,7 @@ Add `entity` to Cargo.toml.
 ```toml
 [dependencies]
 entity = { path = "entity" }
-# migration = { path = "migration" } # if migration is used via binary
+# migration = { path = "migration" } # if migration is used via executable
 ```
 
 ### Migration initialization
@@ -56,7 +58,7 @@ Add dependencies to `migration/Cargo.toml`
 tokio = { version = "1", features = ["full"] } # for migration main function
 async-trait = "0.1.56"
 
-sea-orm-migration = { version = "^0" }
+sea-orm-migration = { version = "^0", features = [ "sqlx-postgres", "runtime-tokio-rustls" ] }
 entity = { path = "../entity" } # depends on your needs
 ```
 
@@ -76,7 +78,7 @@ impl MigrationTrait for Migration {
         manager
             .create_table(
                 Table::create()
-                    .table(Posts::Table)
+                    .table(Posts::Table) // Posts::Table is just an identifier.
                     .if_not_exists()
                     .col(
                         ColumnDef::new(Posts::Id)
