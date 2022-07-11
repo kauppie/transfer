@@ -2,12 +2,14 @@
 
 This document has been derived from SeaORM official documentation for ease of access.
 
+Here is a [link](https://www.sea-ql.org/sea-orm-tutorial/ch00-00-introduction.html) to that documentation.
+
 ## TLDR
 
 - Create empty `entity` crate.
 - Create migration to create tables.
-- Create entity for migration?
 - Migrate.
+- Generate entities.
 
 ## Steps
 
@@ -45,6 +47,8 @@ entity = { path = "entity" }
 
 ### Migration initialization
 
+Either add `.env` file to the project root and add `DATABASE_URL` definition to it, or define it as `sea-orm-cli` commands are run.
+
 ```sh
 sea-orm-cli migrate init
 ```
@@ -69,7 +73,7 @@ Add migration that creates new table(s) to the `migration` crate.
 ```rust
 use sea_orm_migration::prelude::*;
 
-#[derive(DeriveMigrationName)]
+#[derive(DeriveMigrationName)]  // This macro is not yet available -> implement trait manually.
 pub struct Migration;
 
 #[async_trait::async_trait]
@@ -111,19 +115,36 @@ enum Posts {
 }
 ```
 
-Apply the migration with
+**Apply** the migration with
 
 ```sh
 sea-orm-cli migrate up
 ```
 
-Create a new entity with
+or
+
+```sh
+DATABASE_URL=postgres://root:root@localhost:5432/database \
+sea-orm-cli migrate up
+```
+
+**Create** a new entity with
 
 ```sh
 sea-orm-cli generate entity -o entity/src/entities
 ```
 
+or
+
+```sh
+sea-orm-cli generate entity \
+    -u postgres://root:root@localhost:5432/database \
+    -o src/entities
+```
+
 ### Example entity definition
+
+This will be automatically generated but manual editing is allowed, I guess because of the use of `serde`.
 
 ```rust
 use sea_orm::entity::prelude::*;

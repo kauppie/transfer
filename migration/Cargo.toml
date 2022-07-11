@@ -1,0 +1,19 @@
+[package]
+name = "migration"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "migration"
+path = "src/lib.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] } # for migration main function
+async-trait = "0.1.56"
+
+sea-orm-migration = { version = "^0", features = [
+  "sqlx-postgres",
+  "runtime-tokio-rustls",
+] }
+# entity = { path = "../entity" } # depends on your needs
