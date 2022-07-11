@@ -1,5 +1,7 @@
 mod common;
+mod entities;
 
+use sea_orm::{Database, EntityTrait, IntoActiveModel};
 use tonic::{
     transport::{Identity, Server, ServerTlsConfig},
     Request, Response, Status,
@@ -11,7 +13,7 @@ use transfer::{
     GetFileRequest, GetFileResponse, ListFilesRequest, LoginRequest, LoginResponse,
 };
 
-use crate::transfer::ListFilesResponse;
+use crate::{entities::prelude::Objects as TableObjects, transfer::ListFilesResponse};
 
 pub mod transfer {
     tonic::include_proto!("transfer"); // The string specified here must match the proto package name
@@ -126,11 +128,11 @@ impl AuthInterceptor {
 
 impl tonic::service::Interceptor for AuthInterceptor {
     fn call(&mut self, request: tonic::Request<()>) -> Result<tonic::Request<()>, Status> {
-        // Get the authorization header. This should string should be in format "bearer <token>".
+        // Get the authorization header. This string should be in format "bearer <token>".
         let bearer = request
             .metadata()
             .get("authorization")
-            .ok_or(Status::unauthenticated("missing authorization header"))?
+            .ok_or_else(|| Status::unauthenticated("missing authorization header"))?
             .to_str()
             .map_err(|_| {
                 Status::invalid_argument("authorization header is not valid ASCII string")
@@ -144,7 +146,7 @@ impl tonic::service::Interceptor for AuthInterceptor {
         let header = jsonwebtoken::decode_header(token)
             .map_err(|_| Status::invalid_argument("token header cannot be parsed"))?;
 
-        // Validation is done using the algorithm reported by the header.
+        // Validation is done using the algorithm reported by the header. Is this safe?
         let validation = jsonwebtoken::Validation::new(header.alg);
 
         // Validate token. Token claims are not used at least yet.
@@ -184,6 +186,18 @@ async fn main() -> Result<(), StdError> {
 
     let my_login = MyLogin::new();
     let login_service = LoginServer::new(my_login);
+
+    // DB stuff.
+    {
+        let db = Database::connect("postgres://root:root@localhost:5432/database").await?;
+
+        let model = entities::Model {
+            id: sea_orm::prelude::Uuid::new_v4(),
+            binary: b"just basic stuff".to_vec(),
+        };
+        let active_model = model.into_active_model();
+        let _res = TableObjects::insert(active_model).exec(&db).await?;
+    }
 
     let my_transfer = MyTransfer::default();
     let transfer_service =
