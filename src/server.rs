@@ -192,9 +192,10 @@ async fn main() -> Result<(), StdError> {
         let db = Database::connect("postgres://root:root@localhost:5432/database").await?;
 
         let model = entities::Model {
-            id: sea_orm::prelude::Uuid::new_v4(),
+            id: sea_orm::prelude::Uuid::new_v4(), // Fix this to the actual crate, not re-export when 0.9.0 is released.
             binary: b"just basic stuff".to_vec(),
         };
+        // Model needs to be active to be able to mutate the database via insertion.
         let active_model = model.into_active_model();
         let _res = TableObjects::insert(active_model).exec(&db).await?;
     }
