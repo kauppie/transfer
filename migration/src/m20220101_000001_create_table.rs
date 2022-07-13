@@ -14,10 +14,16 @@ impl MigrationTrait for Migration {
         manager
             .create_table(
                 Table::create()
-                    .table(Objects::Table) // Posts::Table is just an identifier.
+                    .table(Users::Table)
                     .if_not_exists()
-                    .col(ColumnDef::new(Objects::Id).uuid().not_null().primary_key())
-                    .col(ColumnDef::new(Objects::Binary).binary().not_null())
+                    .col(ColumnDef::new(Users::Id).uuid().not_null().primary_key())
+                    .col(
+                        ColumnDef::new(Users::Username)
+                            .string()
+                            .not_null()
+                            .unique_key(),
+                    )
+                    .col(ColumnDef::new(Users::Password).string().not_null())
                     .to_owned(),
             )
             .await
@@ -25,15 +31,18 @@ impl MigrationTrait for Migration {
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         manager
-            .drop_table(Table::drop().table(Objects::Table).to_owned())
+            .drop_table(Table::drop().table(Users::Table).to_owned())
             .await
     }
 }
 
 /// Learn more at https://docs.rs/sea-query#iden
 #[derive(Iden)]
-enum Objects {
+enum Users {
+    // The table identifier.
     Table,
+    // Others are column identifiers.
     Id,
-    Binary,
+    Username,
+    Password,
 }

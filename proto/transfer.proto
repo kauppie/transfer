@@ -6,10 +6,6 @@ service Transfer {
   rpc GetFile(GetFileRequest) returns (GetFileResponse);
 }
 
-service Login {
-  rpc Login(LoginRequest) returns (LoginResponse);
-}
-
 message ListFilesRequest {
   string path = 1;
 }
@@ -27,11 +23,3 @@ message GetFileResponse {
   bytes content = 2;
 }
 
-message LoginRequest {
-  string username = 1;
-  string password = 2;
-}
-
-message LoginResponse {
-  string token = 1;
-}

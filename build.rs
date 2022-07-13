@@ -1,4 +1,5 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tonic_build::compile_protos("proto/transfer.proto")?;
+    // TODO: configure to automatically include all proto files.
+    tonic_build::configure().compile(&["proto/transfer.proto", "proto/login.proto"], &["proto"])?;
     Ok(())
 }

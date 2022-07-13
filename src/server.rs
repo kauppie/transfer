@@ -1,22 +1,31 @@
 mod common;
 mod entities;
 
-use sea_orm::{Database, EntityTrait, IntoActiveModel};
+use std::sync::Arc;
+
+use sea_orm::{ColumnTrait, Database, EntityTrait, IntoActiveModel, QueryFilter};
 use tonic::{
     transport::{Identity, Server, ServerTlsConfig},
     Request, Response, Status,
 };
 
-use transfer::{
+use login::{
     login_server::{Login, LoginServer},
+    CreateAccountRequest, CreateAccountResponse, LoginRequest, LoginResponse,
+};
+use transfer::{
     transfer_server::{Transfer, TransferServer},
-    GetFileRequest, GetFileResponse, ListFilesRequest, LoginRequest, LoginResponse,
+    GetFileRequest, GetFileResponse, ListFilesRequest, ListFilesResponse,
 };
 
-use crate::{entities::prelude::Objects as TableObjects, transfer::ListFilesResponse};
+use entities::prelude::Objects as TableObjects;
 
 pub mod transfer {
-    tonic::include_proto!("transfer"); // The string specified here must match the proto package name
+    // The string specified here must match the proto package name
+    tonic::include_proto!("transfer");
+}
+pub mod login {
+    tonic::include_proto!("login");
 }
 
 type ResponseResult<T> = Result<Response<T>, Status>;
@@ -76,14 +85,13 @@ impl Transfer for MyTransfer {
 }
 
 #[derive(Debug, Default)]
-pub struct MyLogin {}
+pub struct MyLogin {
+    db_connection: sea_orm::DatabaseConnection,
+}
 
 impl MyLogin {
-    const NAME: &'static str = "hello";
-    const PASSWORD: &'static str = "world";
-
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(db_connection: sea_orm::DatabaseConnection) -> Self {
+        Self { db_connection }
     }
 }
 
@@ -92,11 +100,21 @@ impl Login for MyLogin {
     #[tracing::instrument]
     async fn login(&self, request: Request<LoginRequest>) -> ResponseResult<LoginResponse> {
         tracing::info!("got a login request");
-
         let request = request.into_inner();
-        if request.username == Self::NAME && request.password == Self::PASSWORD {
+        let credential_error = || Status::unauthenticated("invalid credentials");
+
+        // Query user from database using with username.
+        let user = TableObjects::find()
+            .filter(entities::users::Column::Username.eq(request.username.clone()))
+            .one(&self.db_connection)
+            .await
+            .map_err(|_| Status::internal("database query failed"))?
+            .ok_or_else(credential_error)?;
+
+        // Validate username and password.
+        if request.username == user.username && request.password == user.password {
             let claims = common::Claims {
-                sub: request.username.clone(),
+                sub: request.username,
                 exp: jsonwebtoken::get_current_timestamp() + 3600, // One hour validity.
             };
 
@@ -110,25 +128,52 @@ impl Login for MyLogin {
 
             Ok(Response::new(LoginResponse { token }))
         } else {
-            Err(Status::permission_denied("invalid credentials"))
+            Err(credential_error())
         }
+    }
+
+    #[tracing::instrument]
+    async fn create_account(
+        self: &Self,
+        request: Request<CreateAccountRequest>,
+    ) -> ResponseResult<CreateAccountResponse> {
+        tracing::info!("got a create account request");
+
+        let request = request.into_inner();
+        let model = entities::users::Model {
+            id: sea_orm::prelude::Uuid::new_v4(), // Fix this to the actual crate, not re-export when 0.9.0 is released.
+            username: request.username,
+            password: request.password,
+        };
+
+        // Model needs to be active to be able to mutate the database via insertion.
+        let active_model = model.into_active_model();
+        let _res = TableObjects::insert(active_model)
+            .exec(&self.db_connection)
+            .await
+            .map_err(|_| Status::failed_precondition("creating account failed"))?;
+
+        Ok(Response::new(CreateAccountResponse {}))
     }
 }
 
 #[derive(Clone)]
 struct AuthInterceptor {
-    decoding_key: jsonwebtoken::DecodingKey,
+    // Avoid cloning large decoding key by using a reference.
+    decoding_key: Arc<jsonwebtoken::DecodingKey>,
 }
 
 impl AuthInterceptor {
     pub fn new(decoding_key: jsonwebtoken::DecodingKey) -> Self {
-        Self { decoding_key }
+        Self {
+            decoding_key: Arc::new(decoding_key),
+        }
     }
 }
 
 impl tonic::service::Interceptor for AuthInterceptor {
     fn call(&mut self, request: tonic::Request<()>) -> Result<tonic::Request<()>, Status> {
-        // Get the authorization header. This string should be in format "bearer <token>".
+        // Get the authorization header. This string should be in format "Bearer <token>".
         let bearer = request
             .metadata()
             .get("authorization")
@@ -139,11 +184,11 @@ impl tonic::service::Interceptor for AuthInterceptor {
             })?;
 
         // Strip the string prefix to get the token.
-        let token = bearer
-            .strip_prefix("bearer ")
+        let token_str = bearer
+            .strip_prefix("Bearer ")
             .ok_or_else(|| Status::invalid_argument("bearer is missing"))?;
 
-        let header = jsonwebtoken::decode_header(token)
+        let header = jsonwebtoken::decode_header(token_str)
             .map_err(|_| Status::invalid_argument("token header cannot be parsed"))?;
 
         // Validation is done using the algorithm reported by the header. Is this safe?
@@ -151,7 +196,7 @@ impl tonic::service::Interceptor for AuthInterceptor {
 
         // Validate token. Token claims are not used at least yet.
         let _token_data =
-            jsonwebtoken::decode::<common::Claims>(token, &self.decoding_key, &validation)
+            jsonwebtoken::decode::<common::Claims>(token_str, &self.decoding_key, &validation)
                 .map_err(|e| Status::unauthenticated(e.to_string()))?;
 
         Ok(Request::new(()))
@@ -184,21 +229,9 @@ async fn main() -> Result<(), StdError> {
     let decoding_key = jsonwebtoken::DecodingKey::from_rsa_pem(&jwt_pub_key)
         .expect("failed to load public decoding key");
 
-    let my_login = MyLogin::new();
+    let db_connection = Database::connect("postgres://root:root@localhost:5432/database").await?;
+    let my_login = MyLogin::new(db_connection);
     let login_service = LoginServer::new(my_login);
-
-    // DB stuff.
-    {
-        let db = Database::connect("postgres://root:root@localhost:5432/database").await?;
-
-        let model = entities::Model {
-            id: sea_orm::prelude::Uuid::new_v4(), // Fix this to the actual crate, not re-export when 0.9.0 is released.
-            binary: b"just basic stuff".to_vec(),
-        };
-        // Model needs to be active to be able to mutate the database via insertion.
-        let active_model = model.into_active_model();
-        let _res = TableObjects::insert(active_model).exec(&db).await?;
-    }
 
     let my_transfer = MyTransfer::default();
     let transfer_service =

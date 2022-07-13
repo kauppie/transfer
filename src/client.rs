@@ -6,14 +6,17 @@ use tonic::metadata::MetadataValue;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 use tonic::Request;
 
-use transfer::login_client::LoginClient;
+use login::login_client::LoginClient;
+use login::{CreateAccountRequest, LoginRequest};
 use transfer::transfer_client::TransferClient;
 use transfer::{GetFileRequest, ListFilesRequest};
 
-use crate::transfer::LoginRequest;
-
 pub mod transfer {
-    tonic::include_proto!("transfer"); // The string specified here must match the proto package name
+    // The string specified here must match the proto package name
+    tonic::include_proto!("transfer");
+}
+pub mod login {
+    tonic::include_proto!("login");
 }
 
 #[derive(clap::Parser, Debug)]
@@ -28,6 +31,7 @@ enum Command {
     List(ListArgs),
     Get(GetArgs),
     Login(LoginArgs),
+    CreateAccount(CreateAccountArgs),
 }
 
 #[derive(clap::Args, Debug)]
@@ -42,6 +46,12 @@ struct GetArgs {
 
 #[derive(clap::Args, Debug)]
 struct LoginArgs {
+    username: String,
+    password: String,
+}
+
+#[derive(clap::Args, Debug)]
+struct CreateAccountArgs {
     username: String,
     password: String,
 }
@@ -88,7 +98,17 @@ async fn main() -> Result<(), StdError> {
 
         // Save the token got via response to file.
         let token = response.into_inner().token;
-        tokio::fs::write(TOKEN_PATH, "bearer ".to_owned() + &token).await?;
+        tokio::fs::write(TOKEN_PATH, "Bearer ".to_owned() + &token).await?;
+    } else if let Command::CreateAccount(args) = &args.command {
+        let mut login_client = LoginClient::new(channel.clone());
+
+        // Create the login request.
+        let request = tonic::Request::new(CreateAccountRequest {
+            username: args.username.clone(),
+            password: args.password.clone(),
+        });
+        // Get response by calling the server.
+        let _response = login_client.create_account(request).await?;
     } else {
         let token: MetadataValue<_> = load_token(TOKEN_PATH).await?.parse()?;
 

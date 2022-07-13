@@ -2,7 +2,5 @@
 
 pub mod prelude;
 
-pub mod objects;
 pub mod seaql_migrations;
-
-pub use objects::*;
+pub mod users;
