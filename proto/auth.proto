@@ -1,7 +1,7 @@
 syntax = "proto3";
-package login;
+package auth;
 
-service Login {
+service Auth {
   rpc Login(LoginRequest) returns (LoginResponse);
   rpc CreateAccount(CreateAccountRequest) returns (CreateAccountResponse);
 }
@@ -11,9 +11,7 @@ message LoginRequest {
   string password = 2;
 }
 
-message LoginResponse {
-  string token = 1;
-}
+message LoginResponse { string token = 1; }
 
 message CreateAccountRequest {
   string username = 1;

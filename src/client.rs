@@ -1,22 +1,29 @@
 mod common;
 
+use std::path::Path;
+
 use clap::Parser;
 use tokio::io::AsyncWriteExt;
 use tonic::metadata::MetadataValue;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 use tonic::Request;
 
-use login::login_client::LoginClient;
-use login::{CreateAccountRequest, LoginRequest};
+use auth::auth_client::AuthClient;
+use auth::{CreateAccountRequest, LoginRequest};
 use transfer::transfer_client::TransferClient;
 use transfer::{GetFileRequest, ListFilesRequest};
+use user::user_client::UserClient;
+use user::ChangePasswordRequest;
 
 pub mod transfer {
     // The string specified here must match the proto package name
     tonic::include_proto!("transfer");
 }
-pub mod login {
-    tonic::include_proto!("login");
+pub mod auth {
+    tonic::include_proto!("auth");
+}
+pub mod user {
+    tonic::include_proto!("user");
 }
 
 #[derive(clap::Parser, Debug)]
@@ -32,6 +39,7 @@ enum Command {
     Get(GetArgs),
     Login(LoginArgs),
     CreateAccount(CreateAccountArgs),
+    ChangePassword(ChangePasswordArgs),
 }
 
 #[derive(clap::Args, Debug)]
@@ -56,9 +64,15 @@ struct CreateAccountArgs {
     password: String,
 }
 
+#[derive(clap::Args, Debug)]
+struct ChangePasswordArgs {
+    old_password: String,
+    new_password: String,
+}
+
 type StdError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
-async fn load_token(path: &str) -> Result<String, StdError> {
+async fn load_token(path: impl AsRef<Path>) -> Result<String, StdError> {
     let token_str = tokio::fs::read_to_string(path).await?;
     Ok(token_str)
 }
@@ -86,7 +100,7 @@ async fn main() -> Result<(), StdError> {
         .await?;
 
     if let Command::Login(args) = &args.command {
-        let mut login_client = LoginClient::new(channel.clone());
+        let mut login_client = AuthClient::new(channel.clone());
 
         // Create the login request.
         let request = tonic::Request::new(LoginRequest {
@@ -100,7 +114,7 @@ async fn main() -> Result<(), StdError> {
         let token = response.into_inner().token;
         tokio::fs::write(TOKEN_PATH, "Bearer ".to_owned() + &token).await?;
     } else if let Command::CreateAccount(args) = &args.command {
-        let mut login_client = LoginClient::new(channel.clone());
+        let mut login_client = AuthClient::new(channel.clone());
 
         // Create the login request.
         let request = tonic::Request::new(CreateAccountRequest {
@@ -113,11 +127,13 @@ async fn main() -> Result<(), StdError> {
         let token: MetadataValue<_> = load_token(TOKEN_PATH).await?.parse()?;
 
         // Create a client requiring authorization.
-        let mut transfer_client =
-            TransferClient::with_interceptor(channel.clone(), move |mut req: Request<()>| {
+        let mut transfer_client = TransferClient::with_interceptor(channel.clone(), {
+            let token = token.clone();
+            move |mut req: Request<()>| {
                 req.metadata_mut().insert("authorization", token.clone());
                 Ok(req)
-            });
+            }
+        });
 
         match args.command {
             Command::List(args) => {
@@ -140,6 +156,22 @@ async fn main() -> Result<(), StdError> {
 
                 let mut file = tokio::fs::File::create("output").await?;
                 file.write_all(&response.content).await?;
+            }
+            Command::ChangePassword(args) => {
+                // Create client ad-hoc.
+                let mut user_client =
+                    UserClient::with_interceptor(channel.clone(), move |mut req: Request<()>| {
+                        req.metadata_mut().insert("authorization", token.clone());
+                        Ok(req)
+                    });
+
+                // Create a change password request.
+                let request = tonic::Request::new(ChangePasswordRequest {
+                    old_password: args.old_password,
+                    new_password: args.new_password,
+                });
+                // Get response by calling the server.
+                let _response = user_client.change_password(request).await?;
             }
             _ => unreachable!(),
         }

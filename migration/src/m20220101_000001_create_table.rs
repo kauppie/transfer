@@ -1,12 +1,7 @@
 use sea_orm_migration::prelude::*;
 
+#[derive(DeriveMigrationName)]
 pub struct Migration;
-
-impl MigrationName for Migration {
-    fn name(&self) -> &str {
-        "m20220101_000001_create_table"
-    }
-}
 
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
@@ -23,7 +18,11 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .unique_key(),
                     )
-                    .col(ColumnDef::new(Users::Password).string().not_null())
+                    .col(
+                        ColumnDef::new(Users::PasswordSaltedHashed)
+                            .string()
+                            .not_null(),
+                    )
                     .to_owned(),
             )
             .await
@@ -44,5 +43,5 @@ enum Users {
     // Others are column identifiers.
     Id,
     Username,
-    Password,
+    PasswordSaltedHashed,
 }

@@ -1,0 +1,15 @@
+syntax = "proto3";
+package user;
+
+service User {
+  // User needs to be logged in (e.g. have login token) for this service request
+  // to succeed.
+  rpc ChangePassword(ChangePasswordRequest) returns (ChangePasswordResponse);
+}
+
+message ChangePasswordRequest {
+  string old_password = 1;
+  string new_password = 2;
+}
+
+message ChangePasswordResponse {}
