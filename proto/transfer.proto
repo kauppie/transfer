@@ -6,20 +6,13 @@ service Transfer {
   rpc GetFile(GetFileRequest) returns (GetFileResponse);
 }
 
-message ListFilesRequest {
-  string path = 1;
-}
+message ListFilesRequest { string path = 1; }
 
-message ListFilesResponse {
-  repeated string names = 1;
-}
+message ListFilesResponse { repeated string names = 1; }
 
-message GetFileRequest {
-  string name = 1;
-}
+message GetFileRequest { string name = 1; }
 
 message GetFileResponse {
   string name = 1;
   bytes content = 2;
 }
-

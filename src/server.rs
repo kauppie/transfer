@@ -1,7 +1,7 @@
 mod common;
 mod entities;
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use jsonwebtoken::TokenData;
 use pbkdf2::{
@@ -9,7 +9,10 @@ use pbkdf2::{
     Pbkdf2,
 };
 use rand_core::OsRng;
-use sea_orm::{ActiveModelTrait, ColumnTrait, Database, EntityTrait, IntoActiveModel, QueryFilter};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, ConnectOptions, Database, EntityTrait, IntoActiveModel,
+    QueryFilter,
+};
 use tonic::{
     transport::{Identity, Server, ServerTlsConfig},
     Request, Response, Status,
@@ -242,7 +245,7 @@ impl User for MyUser {
             // Use default hashing strategy and salt to generate password hash.
             let password_salted_hashed = Pbkdf2
                 .hash_password(request.new_password.as_bytes(), &salt)
-                .map_err(|_| Status::internal("creating account failed"))?
+                .map_err(|_| Status::internal("changing password failed"))?
                 .to_string();
 
             // Create active model where the password is updated.
@@ -256,7 +259,7 @@ impl User for MyUser {
             active_model
                 .update(&self.db_connection)
                 .await
-                .map_err(|e| Status::internal(format!("updating password failed: {e}")))?;
+                .map_err(|e| Status::internal(format!("changing password failed: {e}")))?;
 
             Ok(Response::new(ChangePasswordResponse {}))
         } else {
@@ -339,6 +342,16 @@ fn setup_tracing() {
         .expect("failed to set global tracing subscriber");
 }
 
+/// Creates a new database connection with shorter than default timeout. Timeout is set to 10 seconds.
+async fn new_database_connection(
+    url: impl Into<String>,
+) -> Result<sea_orm::DatabaseConnection, sea_orm::DbErr> {
+    let mut opt = ConnectOptions::new(url.into());
+    opt.connect_timeout(Duration::from_secs(10));
+
+    Database::connect(opt).await
+}
+
 #[tokio::main]
 #[tracing::instrument]
 async fn main() -> Result<(), StdError> {
@@ -354,10 +367,9 @@ async fn main() -> Result<(), StdError> {
             .expect("failed to load public decoding key"),
     );
 
-    // Create database connection. This does not verify that the connection is usable. Client may be shown "Connection refused" errors
-    // when trying to retrieve content from the database.
-    // TODO: something about this.
-    let db_connection = Database::connect("postgres://root:root@localhost:5432/database").await?;
+    // Create database connection.
+    let db_connection =
+        new_database_connection("postgres://root:root@localhost:5432/database").await?;
 
     // Create login service.
     let my_login = MyLogin::new(db_connection.clone());
@@ -372,7 +384,6 @@ async fn main() -> Result<(), StdError> {
 
     // Create user service. This service has authentication middleware.
     let my_user = MyUser::new(db_connection, Arc::clone(&decoding_key));
-    // let user_service = UserServer::with_interceptor(my_user, AuthInterceptor::new(decoding_key));
     let user_service = UserServer::with_interceptor(my_user, AuthInterceptor::new(decoding_key));
 
     // Create service address.
