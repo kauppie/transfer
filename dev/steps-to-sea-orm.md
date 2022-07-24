@@ -1,8 +1,6 @@
 # How to use SeaORM
 
-This document has been derived from SeaORM official documentation for ease of access.
-
-Here is a [link](https://www.sea-ql.org/sea-orm-tutorial/ch00-00-introduction.html) to that documentation.
+This document has been derived from SeaORM official documentation for ease of access. Here is a [link](https://www.sea-ql.org/sea-orm-tutorial/ch00-00-introduction.html) to that documentation.
 
 ## TLDR
 
@@ -33,7 +31,7 @@ Add dependencies to `entity/Cargo.toml`
 
 ```toml
 [dependencies]
-serde = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive"] } # optional
 sea-orm = { version = "^0" }
 ```
 
@@ -42,7 +40,7 @@ Add `entity` to Cargo.toml.
 ```toml
 [dependencies]
 entity = { path = "entity" }
-# migration = { path = "migration" } # if migration is used via executable
+migration = { path = "migration" } # if migration is used via executable
 ```
 
 ### Migration initialization
@@ -59,7 +57,7 @@ Add dependencies to `migration/Cargo.toml`
 
 ```toml
 [dependencies]
-tokio = { version = "1", features = ["full"] } # for migration main function
+futures = "0.3.21" # for running the migration.
 async-trait = "0.1.56"
 
 sea-orm-migration = { version = "^0", features = [ "sqlx-postgres", "runtime-tokio-rustls" ] }
@@ -73,7 +71,7 @@ Add migration that creates new table(s) to the `migration` crate.
 ```rust
 use sea_orm_migration::prelude::*;
 
-#[derive(DeriveMigrationName)]  // This macro is not yet available -> implement trait manually.
+#[derive(DeriveMigrationName)]
 pub struct Migration;
 
 #[async_trait::async_trait]

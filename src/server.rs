@@ -1,5 +1,5 @@
 mod common;
-mod entities;
+mod tables;
 
 use std::{sync::Arc, time::Duration};
 
@@ -31,7 +31,7 @@ use user::{
     ChangePasswordRequest, ChangePasswordResponse,
 };
 
-use entities::prelude::Users as TableUsers;
+use tables::prelude::Users as TableUsers;
 
 pub mod transfer {
     // The string specified here must match the proto package name
@@ -131,7 +131,7 @@ impl Auth for MyLogin {
 
         // Query user from database using their username.
         let user = TableUsers::find()
-            .filter(entities::users::Column::Username.eq(request.username.clone()))
+            .filter(tables::users::Column::Username.eq(request.username.clone()))
             .one(&self.db_connection)
             .await
             .map_err(|_| Status::internal("database query failed"))?
@@ -179,7 +179,7 @@ impl Auth for MyLogin {
             .to_string();
 
         // Create the user model to be stored.
-        let model = entities::users::Model {
+        let model = tables::users::Model {
             id: uuid::Uuid::new_v4(),
             username: request.username,
             password_salted_hashed,
@@ -229,7 +229,7 @@ impl User for MyUser {
 
         // Query user from database using their username.
         let user = TableUsers::find()
-            .filter(entities::users::Column::Username.eq(username.clone()))
+            .filter(tables::users::Column::Username.eq(username.clone()))
             .one(&self.db_connection)
             .await
             .map_err(|_| Status::internal("database query failed"))?
@@ -249,7 +249,7 @@ impl User for MyUser {
                 .to_string();
 
             // Create active model where the password is updated.
-            let active_model = entities::users::ActiveModel {
+            let active_model = tables::users::ActiveModel {
                 id: sea_orm::ActiveValue::unchanged(user.id),
                 username: sea_orm::ActiveValue::unchanged(user.username),
                 password_salted_hashed: sea_orm::ActiveValue::set(password_salted_hashed),
