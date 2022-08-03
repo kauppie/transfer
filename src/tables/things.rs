@@ -6,7 +6,7 @@ use sea_orm::entity::prelude::*;
 #[sea_orm(table_name = "things")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
-    pub uuid_ver_hash: Vec<u8>,
+    pub uuid_ver: String,
     pub uuid: Uuid,
     pub version: i64,
     pub data: Vec<u8>,

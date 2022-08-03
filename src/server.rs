@@ -217,7 +217,7 @@ impl MyUser {
 
 #[tonic::async_trait]
 impl User for MyUser {
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip(self, request))]
     async fn change_password(
         &self,
         request: Request<ChangePasswordRequest>,

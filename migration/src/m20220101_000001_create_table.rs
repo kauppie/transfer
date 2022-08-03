@@ -33,11 +33,7 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(Things::Table)
                     .if_not_exists()
-                    .col(
-                        ColumnDef::new(Things::UuidVerHash)
-                            .binary_len(256 / 8)
-                            .primary_key(),
-                    )
+                    .col(ColumnDef::new(Things::UuidVer).string().primary_key())
                     .col(ColumnDef::new(Things::Uuid).uuid().not_null())
                     .col(ColumnDef::new(Things::Version).big_unsigned().not_null())
                     .col(ColumnDef::new(Things::Data).blob(BlobSize::Long).not_null())
@@ -77,7 +73,7 @@ enum Things {
     Table,
 
     /// Primary key of the entity. Formed from concatenation of UUID and version.
-    UuidVerHash,
+    UuidVer,
     /// Identifer of the entity.
     Uuid,
     /// Version of the entity. Unsigned 64-bit integer.
