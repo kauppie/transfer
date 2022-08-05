@@ -9,6 +9,7 @@ pub struct Model {
     pub uuid_ver: String,
     pub uuid: Uuid,
     pub version: i64,
+    pub name: String,
     pub data: Vec<u8>,
 }
 

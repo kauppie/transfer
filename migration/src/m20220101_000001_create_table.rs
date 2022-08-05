@@ -36,6 +36,7 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(Things::UuidVer).string().primary_key())
                     .col(ColumnDef::new(Things::Uuid).uuid().not_null())
                     .col(ColumnDef::new(Things::Version).big_unsigned().not_null())
+                    .col(ColumnDef::new(Things::Name).string().not_null())
                     .col(ColumnDef::new(Things::Data).blob(BlobSize::Long).not_null())
                     .take(),
             )
@@ -78,6 +79,8 @@ enum Things {
     Uuid,
     /// Version of the entity. Unsigned 64-bit integer.
     Version,
+    /// Name of the entity.
+    Name,
     /// Data associated with the entity. Raw bytes at the moment.
     Data,
 }

@@ -2,17 +2,17 @@ syntax = "proto3";
 package transfer;
 
 service Transfer {
-  rpc ListFiles(ListFilesRequest) returns (ListFilesResponse);
-  rpc GetFile(GetFileRequest) returns (GetFileResponse);
+  rpc Upload(UploadRequest) returns (UploadResponse) {}
+  rpc Download(DownloadRequest) returns (DownloadResponse) {}
 }
 
-message ListFilesRequest { string path = 1; }
-
-message ListFilesResponse { repeated string names = 1; }
-
-message GetFileRequest { string name = 1; }
-
-message GetFileResponse {
+message UploadRequest {
   string name = 1;
-  bytes content = 2;
+  bytes data = 2;
 }
+
+message UploadResponse { string uuid = 1; }
+
+message DownloadRequest { string name = 1; }
+
+message DownloadResponse { bytes data = 1; }

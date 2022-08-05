@@ -11,7 +11,7 @@ use tonic::Request;
 use auth::auth_client::AuthClient;
 use auth::{CreateAccountRequest, LoginRequest};
 use transfer::transfer_client::TransferClient;
-use transfer::{GetFileRequest, ListFilesRequest};
+use transfer::{DownloadRequest, UploadRequest};
 use user::user_client::UserClient;
 use user::ChangePasswordRequest;
 
@@ -35,20 +35,21 @@ struct Args {
 
 #[derive(clap::Subcommand, Debug)]
 enum Command {
-    List(ListArgs),
-    Get(GetArgs),
+    Upload(UploadArgs),
+    Download(DownloadArgs),
     Login(LoginArgs),
     CreateAccount(CreateAccountArgs),
     ChangePassword(ChangePasswordArgs),
 }
 
 #[derive(clap::Args, Debug)]
-struct ListArgs {
-    path: String,
+struct UploadArgs {
+    name: String,
+    data: Vec<u8>,
 }
 
 #[derive(clap::Args, Debug)]
-struct GetArgs {
+struct DownloadArgs {
     name: String,
 }
 
@@ -136,26 +137,29 @@ async fn main() -> Result<(), StdError> {
         });
 
         match args.command {
-            Command::List(args) => {
-                // Create a file list request.
-                let request = tonic::Request::new(ListFilesRequest { path: args.path });
-                // Make a request to the server with request and get response.
-                let response = transfer_client.list_files(request).await?;
+            Command::Upload(args) => {
+                let data = tokio::fs::read(&args.name).await?;
 
-                // Print result file names.
-                for file_name in response.into_inner().names {
-                    println!("{}", file_name);
-                }
+                let request = tonic::Request::new(UploadRequest {
+                    name: args.name,
+                    data,
+                });
+
+                let response = transfer_client.upload(request).await?.into_inner();
+
+                println!("file uuid: {}", response.uuid);
             }
-            Command::Get(args) => {
+            Command::Download(args) => {
                 // Make a request to the server with file name request and get file response.
                 let response = transfer_client
-                    .get_file(tonic::Request::new(GetFileRequest { name: args.name }))
+                    .download(tonic::Request::new(DownloadRequest {
+                        name: args.name.clone(),
+                    }))
                     .await?
                     .into_inner();
 
-                let mut file = tokio::fs::File::create("output").await?;
-                file.write_all(&response.content).await?;
+                let mut file = tokio::fs::File::create(format!("{}.copy", args.name)).await?;
+                file.write_all(&response.data).await?;
             }
             Command::ChangePassword(args) => {
                 // Create client ad-hoc.

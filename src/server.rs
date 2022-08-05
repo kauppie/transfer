@@ -10,8 +10,8 @@ use pbkdf2::{
 };
 use rand_core::OsRng;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectOptions, Database, EntityTrait, IntoActiveModel,
-    QueryFilter,
+    ActiveModelTrait, ActiveValue, ColumnTrait, ConnectOptions, Database, EntityTrait,
+    IntoActiveModel, QueryFilter,
 };
 use tonic::{
     transport::{Identity, Server, ServerTlsConfig},
@@ -24,13 +24,14 @@ use auth::{
 };
 use transfer::{
     transfer_server::{Transfer, TransferServer},
-    GetFileRequest, GetFileResponse, ListFilesRequest, ListFilesResponse,
+    DownloadRequest, DownloadResponse, UploadRequest, UploadResponse,
 };
 use user::{
     user_server::{User, UserServer},
     ChangePasswordRequest, ChangePasswordResponse,
 };
 
+use tables::prelude::Things as TableThings;
 use tables::prelude::Users as TableUsers;
 
 pub mod transfer {
@@ -46,57 +47,64 @@ pub mod user {
 
 type ResponseResult<T> = Result<Response<T>, Status>;
 
-#[derive(Debug, Default)]
-pub struct MyTransfer {}
+#[derive(Debug)]
+pub struct MyTransfer {
+    db_connection: sea_orm::DatabaseConnection,
+}
 
 impl MyTransfer {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(db_connection: sea_orm::DatabaseConnection) -> Self {
+        Self { db_connection }
     }
 }
 
 #[tonic::async_trait]
 impl Transfer for MyTransfer {
-    #[tracing::instrument]
-    async fn list_files(
-        &self,
-        request: Request<ListFilesRequest>,
-    ) -> ResponseResult<ListFilesResponse> {
-        tracing::info!("got a file listing request");
+    #[tracing::instrument(skip(self, request))]
+    async fn upload(&self, request: Request<UploadRequest>) -> ResponseResult<UploadResponse> {
+        tracing::info!("upload request");
 
-        let mut names = Vec::new();
+        let request = request.into_inner();
 
-        let mut entries = tokio::fs::read_dir(&request.into_inner().path).await?;
-        while let Some(entry) = entries.next_entry().await? {
-            names.push(
-                entry
-                    .file_name()
-                    .into_string()
-                    .map_err(|_| Status::internal("list item conversion failed"))?,
-            );
-        }
+        let uuid = uuid::Uuid::new_v4();
+        let version = 1;
+        let uuid_ver = format!("{uuid}.{version}");
 
-        let reply = ListFilesResponse { names };
-
-        Ok(Response::new(reply))
-    }
-
-    #[tracing::instrument]
-    async fn get_file(&self, request: Request<GetFileRequest>) -> ResponseResult<GetFileResponse> {
-        tracing::info!("got a file download request");
-
-        let file_name = request.into_inner().name;
-
-        let bytes = tokio::fs::read(&file_name)
-            .await
-            .map_err(|_| Status::failed_precondition("file does not exist"))?;
-
-        let reply = GetFileResponse {
-            name: file_name,
-            content: bytes,
+        let active_model = tables::things::ActiveModel {
+            uuid_ver: ActiveValue::set(uuid_ver),
+            uuid: ActiveValue::set(uuid.clone()),
+            name: ActiveValue::set(request.name),
+            version: ActiveValue::set(version),
+            data: ActiveValue::set(request.data),
         };
 
-        Ok(Response::new(reply))
+        active_model
+            .insert(&self.db_connection)
+            .await
+            .map_err(|_| Status::internal("failed to insert"))?;
+
+        Ok(Response::new(UploadResponse {
+            uuid: uuid.to_string(),
+        }))
+    }
+
+    #[tracing::instrument(skip(self, request))]
+    async fn download(
+        &self,
+        request: Request<DownloadRequest>,
+    ) -> ResponseResult<DownloadResponse> {
+        tracing::info!("download request");
+
+        let request = request.into_inner();
+
+        let user = TableThings::find()
+            .filter(tables::things::Column::Name.eq(request.name))
+            .one(&self.db_connection)
+            .await
+            .map_err(|_| Status::internal("database query failed"))?
+            .ok_or_else(|| Status::failed_precondition("not found"))?;
+
+        Ok(Response::new(DownloadResponse { data: user.data }))
     }
 }
 
@@ -250,9 +258,9 @@ impl User for MyUser {
 
             // Create active model where the password is updated.
             let active_model = tables::users::ActiveModel {
-                id: sea_orm::ActiveValue::unchanged(user.id),
-                username: sea_orm::ActiveValue::unchanged(user.username),
-                password_salted_hashed: sea_orm::ActiveValue::set(password_salted_hashed),
+                id: ActiveValue::unchanged(user.id),
+                username: ActiveValue::unchanged(user.username),
+                password_salted_hashed: ActiveValue::set(password_salted_hashed),
             };
 
             // Execute database update.
@@ -376,7 +384,7 @@ async fn main() -> Result<(), StdError> {
     let login_service = AuthServer::new(my_login);
 
     // Create transfer service. This service has authentication middleware.
-    let my_transfer = MyTransfer::default();
+    let my_transfer = MyTransfer::new(db_connection.clone());
     let transfer_service = TransferServer::with_interceptor(
         my_transfer,
         AuthInterceptor::new(Arc::clone(&decoding_key)),
