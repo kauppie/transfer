@@ -351,7 +351,7 @@ fn setup_tracing() {
 }
 
 /// Creates a new database connection with shorter than default timeout. Timeout is set to 10 seconds.
-async fn new_database_connection(
+async fn connect_to_database(
     url: impl Into<String>,
 ) -> Result<sea_orm::DatabaseConnection, sea_orm::DbErr> {
     let mut opt = ConnectOptions::new(url.into());
@@ -376,8 +376,7 @@ async fn main() -> Result<(), StdError> {
     );
 
     // Create database connection.
-    let db_connection =
-        new_database_connection("postgres://root:root@localhost:5432/database").await?;
+    let db_connection = connect_to_database("postgres://root:root@localhost:5432/database").await?;
 
     // Create login service.
     let my_login = MyLogin::new(db_connection.clone());
@@ -395,7 +394,7 @@ async fn main() -> Result<(), StdError> {
     let user_service = UserServer::with_interceptor(my_user, AuthInterceptor::new(decoding_key));
 
     // Create service address.
-    let addr = "[::1]:50051".parse()?;
+    let addr = "[::1]:50051".parse().expect("failed to parse address");
 
     // Create and start server.
     Server::builder()
