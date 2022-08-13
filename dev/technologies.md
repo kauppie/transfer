@@ -8,7 +8,7 @@ With many services, use mTLS or mutual TLS where both the service AND the client
 
 For running Kubernetes locally.
 
-## Kubernetes
+## Kubernetes (K8s)
 
 Orchestration of (micro)service based application cluster.
 
@@ -27,3 +27,7 @@ Collecting application tracing information for debugging and analysis.
 ## Prometheus
 
 Time-based application tracing for performance monitoring etc.
+
+## Traefik
+
+Load balancer solution for Kubernetes Ingress with automatic Let's Encrypt certificates.
