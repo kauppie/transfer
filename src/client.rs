@@ -35,10 +35,15 @@ struct Args {
 
 #[derive(clap::Subcommand, Debug)]
 enum Command {
+    /// Upload file to the target server.
     Upload(UploadArgs),
+    /// Download file from the target server.
     Download(DownloadArgs),
+    /// Login to the target server.
     Login(LoginArgs),
+    /// Create account.
     CreateAccount(CreateAccountArgs),
+    /// Change password of the account.
     ChangePassword(ChangePasswordArgs),
 }
 
@@ -113,7 +118,7 @@ async fn main() -> Result<(), StdError> {
 
         // Save the token got via response to file.
         let token = response.into_inner().token;
-        tokio::fs::write(TOKEN_PATH, "Bearer ".to_owned() + &token).await?;
+        tokio::fs::write(TOKEN_PATH, format!("Bearer {}", token)).await?;
     } else if let Command::CreateAccount(args) = &args.command {
         let mut login_client = AuthClient::new(channel.clone());
 
