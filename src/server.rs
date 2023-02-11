@@ -392,7 +392,8 @@ async fn main() -> Result<(), StdError> {
     );
 
     // Create database connection.
-    let db_connection = connect_to_database("postgres://root:root@localhost:5432/database").await?;
+    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    let db_connection = connect_to_database(database_url).await?;
 
     // Create login service.
     let my_login = MyLogin::new(db_connection.clone(), "dev/private.pem").await?;
