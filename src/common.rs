@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-/// Our claims struct, it needs to derive `Serialize` and/or `Deserialize`
+/// This represents the claims made by the client as
+/// part of the JWT token.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
     pub sub: String,

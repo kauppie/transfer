@@ -1,9 +1,10 @@
 mod common;
 mod tables;
 
-use std::{sync::Arc, time::Duration};
+use std::{path::Path, sync::Arc, time::Duration};
 
-use jsonwebtoken::TokenData;
+use jsonwebtoken as jwt;
+
 use pbkdf2::{
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Pbkdf2,
@@ -46,6 +47,7 @@ pub mod user {
 }
 
 type ResponseResult<T> = Result<Response<T>, Status>;
+type StdError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
 #[derive(Debug)]
 pub struct MyTransfer {
@@ -109,23 +111,41 @@ impl Transfer for MyTransfer {
 }
 
 fn verify_password(password: &str, password_salted_hashed: &str) -> bool {
-    let parsed_hash = PasswordHash::new(password_salted_hashed);
-    match parsed_hash {
-        Ok(parsed_hash) => Pbkdf2
-            .verify_password(password.as_bytes(), &parsed_hash)
-            .is_ok(),
-        Err(_) => false,
-    }
+    let password_hash = PasswordHash::new(password_salted_hashed);
+    password_hash
+        .and_then(|password_hash| Pbkdf2.verify_password(password.as_bytes(), &password_hash))
+        .is_ok()
 }
 
-#[derive(Debug)]
 pub struct MyLogin {
     db_connection: sea_orm::DatabaseConnection,
+    priv_key: jwt::EncodingKey,
 }
 
 impl MyLogin {
-    pub fn new(db_connection: sea_orm::DatabaseConnection) -> Self {
-        Self { db_connection }
+    // Authenticated token expires in 1 hour.
+    const AUTH_PERIOD_SECS: u64 = 60 * 60;
+
+    pub async fn new(
+        db_connection: sea_orm::DatabaseConnection,
+        priv_key_path: impl AsRef<Path>,
+    ) -> Result<Self, StdError> {
+        let key_bytes = tokio::fs::read(priv_key_path).await?;
+        let priv_key =
+            jwt::EncodingKey::from_rsa_pem(&key_bytes).map_err(|_| "invalid key".to_owned())?;
+
+        Ok(Self {
+            db_connection,
+            priv_key,
+        })
+    }
+}
+
+impl std::fmt::Debug for MyLogin {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MyLogin")
+            .field("db_connection", &self.db_connection)
+            .finish_non_exhaustive()
     }
 }
 
@@ -153,14 +173,13 @@ impl Auth for MyLogin {
         if valid_password {
             let claims = common::Claims {
                 sub: request.username,
-                exp: jsonwebtoken::get_current_timestamp() + 3600, // One hour validity.
+                exp: jwt::get_current_timestamp() + MyLogin::AUTH_PERIOD_SECS,
             };
 
-            let token = jsonwebtoken::encode(
-                &jsonwebtoken::Header::new(jsonwebtoken::Algorithm::RS256),
+            let token = jwt::encode(
+                &jwt::Header::new(jwt::Algorithm::RS256),
                 &claims,
-                &jsonwebtoken::EncodingKey::from_rsa_pem(include_bytes!("../dev/private.pem"))
-                    .map_err(|_| Status::internal("private key is invalid"))?,
+                &self.priv_key,
             )
             .map_err(|_| Status::internal("token encoding failed"))?;
 
@@ -208,13 +227,13 @@ impl Auth for MyLogin {
 pub struct MyUser {
     db_connection: sea_orm::DatabaseConnection,
     // Avoid cloning large decoding key by using a reference.
-    decoding_key: Arc<jsonwebtoken::DecodingKey>,
+    decoding_key: Arc<jwt::DecodingKey>,
 }
 
 impl MyUser {
     pub fn new(
         db_connection: sea_orm::DatabaseConnection,
-        decoding_key: Arc<jsonwebtoken::DecodingKey>,
+        decoding_key: Arc<jwt::DecodingKey>,
     ) -> Self {
         Self {
             db_connection,
@@ -280,11 +299,11 @@ impl User for MyUser {
 #[derive(Clone)]
 struct AuthInterceptor {
     // Avoid cloning large decoding key by using a reference.
-    decoding_key: Arc<jsonwebtoken::DecodingKey>,
+    decoding_key: Arc<jwt::DecodingKey>,
 }
 
 impl AuthInterceptor {
-    pub fn new(decoding_key: Arc<jsonwebtoken::DecodingKey>) -> Self {
+    pub fn new(decoding_key: Arc<jwt::DecodingKey>) -> Self {
         Self { decoding_key }
     }
 }
@@ -300,7 +319,7 @@ impl tonic::service::Interceptor for AuthInterceptor {
 
 fn validate_request_token<T>(
     request: &Request<T>,
-    decoding_key: &jsonwebtoken::DecodingKey,
+    decoding_key: &jwt::DecodingKey,
 ) -> Result<(), Status> {
     // Get token data from request. This fails if the token is invalid.
     let _token_data = get_request_token_claims(request, decoding_key)?;
@@ -309,8 +328,8 @@ fn validate_request_token<T>(
 
 fn get_request_token_claims<T>(
     request: &tonic::Request<T>,
-    decoding_key: &jsonwebtoken::DecodingKey,
-) -> Result<TokenData<common::Claims>, Status> {
+    decoding_key: &jwt::DecodingKey,
+) -> Result<jwt::TokenData<common::Claims>, Status> {
     // Get the authorization header. This string should be in format "Bearer <token>".
     let bearer = request
         .metadata()
@@ -324,30 +343,28 @@ fn get_request_token_claims<T>(
         .strip_prefix("Bearer ")
         .ok_or_else(|| Status::invalid_argument("bearer is missing"))?;
 
-    let header = jsonwebtoken::decode_header(token_str)
+    let header = jwt::decode_header(token_str)
         .map_err(|_| Status::invalid_argument("token header cannot be parsed"))?;
 
     // Validation is done using the algorithm reported by the header. Is this safe?
-    let validation = jsonwebtoken::Validation::new(header.alg);
+    let validation = jwt::Validation::new(header.alg);
 
     // Validate token. Token claims are not used at least yet.
-    let token_data = jsonwebtoken::decode::<common::Claims>(token_str, &decoding_key, &validation)
+    let token_data = jwt::decode::<common::Claims>(token_str, &decoding_key, &validation)
         .map_err(|e| Status::unauthenticated(e.to_string()))?;
 
     Ok(token_data)
 }
 
-type StdError = Box<dyn std::error::Error + Send + Sync + 'static>;
-
-fn setup_tracing() {
+fn setup_tracing() -> Result<(), StdError> {
     let subscriber = tracing_subscriber::FmtSubscriber::builder()
         .with_max_level(tracing::Level::INFO)
         .with_file(true)
         .with_line_number(true)
         .finish();
+    tracing::subscriber::set_global_default(subscriber)?;
 
-    tracing::subscriber::set_global_default(subscriber)
-        .expect("failed to set global tracing subscriber");
+    Ok(())
 }
 
 /// Creates a new database connection with shorter than default timeout. Timeout is set to 10 seconds.
@@ -363,7 +380,7 @@ async fn connect_to_database(
 #[tokio::main]
 #[tracing::instrument]
 async fn main() -> Result<(), StdError> {
-    setup_tracing();
+    setup_tracing()?;
 
     let cert = tokio::fs::read("dev/cert.pem").await?;
     let key = tokio::fs::read("dev/cert.key").await?;
@@ -371,15 +388,14 @@ async fn main() -> Result<(), StdError> {
 
     let jwt_pub_key = tokio::fs::read("dev/public.pem").await?;
     let decoding_key = Arc::new(
-        jsonwebtoken::DecodingKey::from_rsa_pem(&jwt_pub_key)
-            .expect("failed to load public decoding key"),
+        jwt::DecodingKey::from_rsa_pem(&jwt_pub_key).expect("failed to load public decoding key"),
     );
 
     // Create database connection.
     let db_connection = connect_to_database("postgres://root:root@localhost:5432/database").await?;
 
     // Create login service.
-    let my_login = MyLogin::new(db_connection.clone());
+    let my_login = MyLogin::new(db_connection.clone(), "dev/private.pem").await?;
     let login_service = AuthServer::new(my_login);
 
     // Create transfer service. This service has authentication middleware.
